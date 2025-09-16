@@ -184,6 +184,26 @@ public M16_Deploy(const iItem, const iPlayer, const iClip)
 	return wpnmod_default_deploy(iItem, MODEL_VIEW, MODEL_PLAYER, ANIM_DRAW, ANIM_EXTENSION);
 }
 ```
+#### Состояние покоя 
+
+Для обработки состояния Idle реализуем соответствующий метод. 
+
+```
+public M16_Idle(const iItem)
+{
+	wpnmod_reset_empty_sound(iItem);
+
+	
+	if (wpnmod_get_offset_float(iItem, Offset_flTimeWeaponIdle) > 0.0)
+	{
+		return;
+	}
+
+	wpnmod_send_weapon_anim(iItem, ANIM_IDLE); // Анимация состояния покоя 
+	wpnmod_set_offset_float(iItem, Offset_flTimeWeaponIdle, 6.0); // Через сколько анимация будет проиграна повторно
+}
+```
+
 #### Убираем оружие в инвентарь 
 
 Реализуем метод обратный методу доставания - метод ```M16_Holster```. В методе мы указываем анимацию, которая будет проиграна при смене оружия, а также останавливаем все прочие процессы (например, перезарядку). 
@@ -196,6 +216,7 @@ public M16_Holster(const iItem , iPlayer)
 	// wpnmod_send_weapon_anim(iItem, ANIM_HOLSTER) - В нашей v_ модели нет такой анимации. Поэтому строка закомментирована. 
 }
 ```
+
 
 #### Перезарядка
 
@@ -287,11 +308,10 @@ public M16_PrimaryAttack(const iItem, const iPlayer, iClip)
 ```
 #include <amxmodx>
 #include <hl_wpnmod>
-#include <engine>
 
-#define PLUGIN "M16A1EP Weapon"
+#define PLUGIN "Weapon M16"
 #define VERSION "1.0"
-#define AUTHOR "KORD_12.7 / Community"
+#define AUTHOR "Demo"
 
 // Основные параметры оружия
 #define WEAPON_NAME "weapon_m16a1ep"
@@ -395,6 +415,21 @@ public M16_Deploy(const iItem, const iPlayer, const iClip)
 	wpnmod_set_offset_float(iItem, Offset_flTimeWeaponIdle, 1.2);
 	emit_sound(iPlayer, CHAN_WEAPON, SOUND_DEPLOY, 0.9, ATTN_NORM, 0, PITCH_NORM);
     return wpnmod_default_deploy(iItem, MODEL_VIEW, MODEL_PLAYER, ANIM_DRAW, ANIM_EXTENSION);
+}
+
+// Состояние покоя
+public M16_Idle(const iItem)
+{
+	wpnmod_reset_empty_sound(iItem);
+
+	
+	if (wpnmod_get_offset_float(iItem, Offset_flTimeWeaponIdle) > 0.0)
+	{
+		return;
+	}
+
+	wpnmod_send_weapon_anim(iItem, ANIM_IDLE); // Анимация состояния покоя 
+	wpnmod_set_offset_float(iItem, Offset_flTimeWeaponIdle, 6.0); // Через сколько анимация будет проиграна повторно
 }
 
 // Убирание оружия

@@ -284,6 +284,201 @@ public M16_PrimaryAttack(const iItem, const iPlayer, iClip)
 
 По итогу мы получаем следующий код простого плагина: 
 
+```
+#include <amxmodx>
+#include <hl_wpnmod>
+#include <engine>
+
+#define PLUGIN "M16A1EP Weapon"
+#define VERSION "1.0"
+#define AUTHOR "KORD_12.7 / Community"
+
+// Основные параметры оружия
+#define WEAPON_NAME "weapon_m16a1ep"
+#define WEAPON_SLOT 4
+#define WEAPON_POSITION 5
+#define WEAPON_PRIMARY_AMMO "9mmAR"
+#define WEAPON_PRIMARY_AMMO_MAX 200
+#define WEAPON_SECONDARY_AMMO ""
+#define WEAPON_SECONDARY_AMMO_MAX 0
+#define WEAPON_MAX_CLIP 30
+#define WEAPON_DEFAULT_AMMO 200
+#define WEAPON_FLAGS 0
+#define WEAPON_WEIGHT 20
+#define WEAPON_DAMAGE 70.0
+#define ANIM_EXTENSION "mp5"
+
+// Анимации
+enum _:cz_VUL
+{
+	ANIM_IDLE,
+	ANIM_SHOOT1,
+	ANIM_SHOOT2,
+	ANIM_RELOAD,
+	ANIM_DRAW,
+	ANIM_SHOOT3,
+	ANIM_SHOOT4
+};
+
+// Модели
+#define MODEL_WORLD "models/hl-hev/m16a1/w_m16a1ep.mdl"
+#define MODEL_VIEW "models/hl-hev/m16a1/v_m16a1ep_hev.mdl"
+#define MODEL_PLAYER "models/hl-hev/m16a1/p_m16a1ep.mdl"
+
+// HUD
+#define WEAPON_HUD_TXT "sprites/weapon_m16a1ep.txt"
+#define WEAPON_HUD_BAR "sprites/640hud79.spr"
+
+// Звуки
+#define SOUND_FIRE "weapons/hl-hev/m16a1/m16a1ep_shoot.wav"
+#define SOUND_BOLTUP "weapons/hl-hev/m16a1/m16a1ep_boltpull.wav"
+#define SOUND_RELOAD "weapons/hl-hev/m16a1/m16a1ep_clipout.wav"
+#define SOUND_DEPLOY "weapons/hl-hev/m16a1/m16a1ep_deploy.wav"
+#define SOUND_CLIPIN "weapons/hl-hev/m16a1/m16a1ep_clipin.wav"
+
+// Глобальный ID оружия
+new g_iM16;
+
+public plugin_precache()
+{
+	PRECACHE_MODEL(MODEL_VIEW);
+	PRECACHE_MODEL(MODEL_WORLD);
+	PRECACHE_MODEL(MODEL_PLAYER);
+
+	PRECACHE_SOUND(SOUND_RELOAD);
+	PRECACHE_SOUND(SOUND_FIRE);
+	PRECACHE_SOUND(SOUND_CLIPIN);
+	PRECACHE_SOUND(SOUND_BOLTUP);
+	PRECACHE_SOUND(SOUND_DEPLOY);
+
+	PRECACHE_GENERIC(WEAPON_HUD_TXT);
+	PRECACHE_GENERIC(WEAPON_HUD_BAR);
+}
+
+public plugin_init()
+{
+	register_plugin(PLUGIN, VERSION, AUTHOR);
+
+	g_iM16 = wpnmod_register_weapon(
+		WEAPON_NAME,
+		WEAPON_SLOT,
+		WEAPON_POSITION,
+		WEAPON_PRIMARY_AMMO,
+		WEAPON_PRIMARY_AMMO_MAX,
+		WEAPON_SECONDARY_AMMO,
+		WEAPON_SECONDARY_AMMO_MAX,
+		WEAPON_MAX_CLIP,
+		WEAPON_FLAGS,
+		WEAPON_WEIGHT
+	);
+
+	// Регистрация хуков
+	wpnmod_register_weapon_forward(g_iM16, Fwd_Wpn_Spawn, "M16_Spawn");
+	wpnmod_register_weapon_forward(g_iM16, Fwd_Wpn_Deploy, "M16_Deploy");
+	wpnmod_register_weapon_forward(g_iM16, Fwd_Wpn_Holster, "M16_Holster");
+	wpnmod_register_weapon_forward(g_iM16, Fwd_Wpn_Idle, "M16_Idle");
+	wpnmod_register_weapon_forward(g_iM16, Fwd_Wpn_PrimaryAttack, "M16_PrimaryAttack");
+	wpnmod_register_weapon_forward(g_iM16, Fwd_Wpn_Reload, "M16_Reload");
+}
+
+// Спавн оружия на земле
+public M16_Spawn(const iItem)
+{
+	SET_MODEL(iItem, MODEL_WORLD);
+	wpnmod_set_offset_int(iItem, Offset_iDefaultAmmo, WEAPON_DEFAULT_AMMO);
+}
+
+// Доставание оружия
+public M16_Deploy(const iItem, const iPlayer, const iClip)
+{
+	wpnmod_set_offset_float(iItem, Offset_flNextPrimaryAttack, 1.0);
+	wpnmod_set_offset_float(iItem, Offset_flTimeWeaponIdle, 1.2);
+	emit_sound(iPlayer, CHAN_WEAPON, SOUND_DEPLOY, 0.9, ATTN_NORM, 0, PITCH_NORM);
+    return wpnmod_default_deploy(iItem, MODEL_VIEW, MODEL_PLAYER, ANIM_DRAW, ANIM_EXTENSION);
+}
+
+// Убирание оружия
+public M16_Holster(const iItem, iPlayer)
+{
+	wpnmod_set_offset_int(iItem, Offset_iInSpecialReload, 0);
+	// wpnmod_send_weapon_anim(iItem, ANIM_HOLSTER); // Если есть анимация
+}
+
+// Idle (ничего не делаем, можно оставить пустым)
+public M16_Idle(const iItem, const iPlayer)
+{
+	// Можно добавить анимацию или звук по таймеру, если нужно
+}
+
+// Перезарядка
+public M16_Reload(const iItem, const iPlayer, const iClip, const iAmmo)
+{
+	if (iAmmo <= 0 || iClip >= WEAPON_MAX_CLIP)
+	{
+		return;
+	}
+
+	wpnmod_default_reload(iItem, WEAPON_MAX_CLIP, ANIM_RELOAD, 3.8);
+
+	// Пошаговые звуки перезарядки
+	set_task(1.8, "M16_Reload_Step1", iPlayer);
+	set_task(3.0, "M16_Reload_Step2", iPlayer);
+	set_task(3.8, "M16_Reload_Step3", iPlayer);
+}
+
+public M16_Reload_Step1(iPlayer)
+{
+	emit_sound(iPlayer, CHAN_WEAPON, SOUND_RELOAD, 0.9, ATTN_NORM, 0, PITCH_NORM);
+}
+
+public M16_Reload_Step2(iPlayer)
+{
+	emit_sound(iPlayer, CHAN_WEAPON, SOUND_CLIPIN, 0.9, ATTN_NORM, 0, PITCH_NORM);
+}
+
+public M16_Reload_Step3(iPlayer)
+{
+	emit_sound(iPlayer, CHAN_WEAPON, SOUND_BOLTUP, 0.9, ATTN_NORM, 0, PITCH_NORM);
+}
+
+// Основная атака (автоматический огонь)
+public M16_PrimaryAttack(const iItem, const iPlayer, iClip)
+{
+	if (pev(iPlayer, pev_waterlevel) == 3 || iClip <= 0)
+	{
+		wpnmod_play_empty_sound(iItem);
+		wpnmod_set_offset_float(iItem, Offset_flNextPrimaryAttack, 0.15);
+		return;
+	}
+
+	wpnmod_set_offset_int(iItem, Offset_iClip, --iClip);
+	wpnmod_set_offset_int(iPlayer, Offset_iWeaponVolume, LOUD_GUN_VOLUME);
+	wpnmod_set_offset_int(iPlayer, Offset_iWeaponFlash, BRIGHT_GUN_FLASH);
+
+	wpnmod_set_offset_float(iItem, Offset_flNextPrimaryAttack, 0.08);
+	wpnmod_set_offset_float(iItem, Offset_flTimeWeaponIdle, 1.0);
+
+	wpnmod_set_player_anim(iPlayer, PLAYER_ATTACK1);
+	wpnmod_send_weapon_anim(iItem, ANIM_SHOOT1);
+
+	wpnmod_fire_bullets(
+		iPlayer,
+		iPlayer,
+		1,
+		VECTOR_CONE_1DEGREES,
+		8192.0,
+		WEAPON_DAMAGE,
+		DMG_BULLET | DMG_NEVERGIB,
+		1
+	);
+
+	emit_sound(iPlayer, CHAN_WEAPON, SOUND_FIRE, 0.9, ATTN_NORM, 0, PITCH_NORM);
+	set_pev(iPlayer, pev_effects, pev(iPlayer, pev_effects) | EF_MUZZLEFLASH);
+	set_pev(iPlayer, pev_punchangle, Float:{-1.0, 0.0, 0.0});
+}
+```
+
+В следующих разделах рассмотрим, как можно разнообразить разрабатываемое вооружение.
 
 
 ## Усложнения 

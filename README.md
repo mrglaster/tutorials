@@ -884,10 +884,742 @@ MakeZoom(const iItem, const iPlayer, const szWeaponName[], const szViewModel[], 
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/3ed524e6-692b-4584-8345-86e8d27028f6" />
 
 
-### Запуск снарядов (создание плазмагана)
+### Использование снарядов и прочего вместо пуль
 
-### Лазерное оружие 
+Помимо пуль мы также можем использовать при стрельбе прочие снаряды. Рассмотрим на несколькиз примерах.
 
-### Создание оружия ближнего боя
+#### Создание гранатомёта
 
-### 
+В Half-Life Weaponmod есть возможность использовать некоторые некоторые виды гранат. К ним относятся контактная граната, взрывающася при касании любой поверхности, а также граната с таймеров, которая взорвется по истечению некоторого времени.
+
+```c
+
+/**
+ * Fire default contact grenade from player's weapon.
+ *
+ * @param iPlayer			Player index.
+ * @param vecStart			Start position.
+ * @param vecVelocity		Velocity.
+ * @param szCallBack		The forward to call on explode.
+ *
+ * @return					Contact grenade index or -1 on failure. (integer)
+ */
+native wpnmod_fire_contact_grenade(const iPlayer, const Float: vecStart[3], const Float: vecVelocity[3], const szCallBack[] = "");
+
+/**
+ * Fire default timed grenade from player's weapon.
+ *
+ * @param iPlayer			Player index.
+ * @param vecStart			Start position.
+ * @param vecVelocity		Velocity.
+ * @param flTime			Time before detonate.
+ * @param szCallBack		The forward to call on explode.
+ *
+ * @return					Contact grenade index or -1 on failure. (integer)
+ */
+native wpnmod_fire_timed_grenade(const iPlayer, const Float: vecStart[3], const Float: vecVelocity[3], const Float: flTime = 3.0, const szCallBack[] = "");
+```
+
+Рассмотрим использование натива ```wpnmod_fire_contact_grenade``` на примере плагина RPG-7.
+
+```c
+//**********************************************
+//* Запускаем ракету                           *
+//**********************************************
+
+RPG7_Fire(const iPlayer)
+{
+	new iRocket;
+	
+	new Float: vecOrigin[3];
+	new Float: vecVelocity[3];
+	
+	wpnmod_get_gun_position(iPlayer, vecOrigin, 16.0, 6.0, 0.0);
+	velocity_by_aim(iPlayer, ROCKET_VELOCITY, vecVelocity);
+		
+	// Создаем гранату
+	iRocket = wpnmod_fire_contact_grenade(iPlayer, vecOrigin, vecVelocity, "Rocket_Explode");
+	
+	if (pev_valid(iRocket))
+	{
+		new Float: flGameTime = get_gametime();
+		
+		// Dont draw default fireball on explode and do not inflict damage
+		set_pev(iRocket, pev_spawnflags, SF_EXPLOSION_NODAMAGE | SF_EXPLOSION_NOFIREBALL);
+		
+		// Задаем класснейм
+		set_pev(iRocket, pev_classname, ROCKET_CLASSNAME);
+		
+		// Задаем тип движения
+		set_pev(iRocket, pev_movetype, MOVETYPE_FLY);
+		
+		// Задаем урон при касании
+		set_pev(iRocket, pev_dmg, WEAPON_DAMAGE);
+		
+		// Добавляем свечение
+		set_pev(iRocket, pev_effects, pev(iRocket, pev_effects) | EF_LIGHT);
+		
+		// Задаем угловую скорость
+		set_pev(iRocket, pev_avelocity, Float: {0.0, 0.0, 1000.0});
+		
+		// Задаем модель
+		SET_MODEL(iRocket, MODEL_ROCKET);
+		
+		// Задаем callback на think для сущности ракеты
+		wpnmod_set_think(iRocket, "Rocket_FlyThink");
+		
+		// Указываем, через сколько сработает think
+		set_pev(iRocket, pev_nextthink, flGameTime + 0.1);
+		
+		// Задаем максимальное время полета
+		set_pev(iRocket, pev_dmgtime, flGameTime + 3.0);
+		
+		// Реализация следа за ракетой 
+		message_begin(MSG_BROADCAST, SVC_TEMPENTITY);
+		write_byte(TE_BEAMFOLLOW);
+		write_short(iRocket); // entity
+		write_short(g_iModelIndexTrail); // model
+		write_byte(10); // life
+		write_byte(4); // width
+		write_byte(224); // r, g, b
+		write_byte(224); // r, g, b
+		write_byte(255); // r, g, b
+		write_byte(255); // brightness
+		message_end();
+		
+		emit_sound(iRocket, CHAN_VOICE, SOUND_ROCKET_FLY, 1.0, 0.5, 0, PITCH_NORM);
+	}
+}
+
+//**********************************************
+//* Фунукция think для сущности  		       *
+//**********************************************
+
+public Rocket_FlyThink(const iRocket)
+{
+	static Float: flDmgTime;
+	static Float: flGameTime;
+	
+	pev(iRocket, pev_dmgtime, flDmgTime);
+	set_pev(iRocket, pev_nextthink, (flGameTime = get_gametime()) + 0.2);
+
+	if (pev(iRocket, pev_waterlevel) != 0)
+	{
+		new Float: vecVelocity[3];
+		
+		pev(iRocket, pev_velocity, vecVelocity);
+		xs_vec_mul_scalar(vecVelocity, 0.5, vecVelocity);
+		set_pev(iRocket, pev_velocity, vecVelocity);
+	}
+	
+	if (flDmgTime <= flGameTime)
+	{
+		set_pev(iRocket, pev_movetype, MOVETYPE_TOSS);
+		set_pev(iRocket, pev_effects, pev(iRocket, pev_effects) &~ EF_LIGHT);
+		
+		emit_sound(iRocket, CHAN_VOICE, SOUND_ROCKET_FLY, 0.0, 0.0, SND_STOP, PITCH_NORM);
+	}
+}
+
+//**********************************************
+//* Реализация взрыва            		       *
+//**********************************************
+
+public Rocket_Explode(const iRocket)
+{	
+	new iOwner;
+	
+	new Float: flDamage;
+	new Float: vecOrigin[3];
+	
+	iOwner = pev(iRocket, pev_owner);
+	
+	pev(iRocket, pev_dmg, flDamage);
+	pev(iRocket, pev_origin, vecOrigin);
+	
+	engfunc(EngFunc_MessageBegin,MSG_PAS, SVC_TEMPENTITY, vecOrigin, 0);
+	write_byte(TE_EXPLOSION);
+	engfunc(EngFunc_WriteCoord, vecOrigin[0]);
+	engfunc(EngFunc_WriteCoord, vecOrigin[1]);
+	engfunc(EngFunc_WriteCoord, vecOrigin[2]);
+	write_short(engfunc(EngFunc_PointContents, vecOrigin) != CONTENTS_WATER ? g_iModelIndexFireball : g_iModelIndexWExplosion);
+	write_byte(35);
+	write_byte(15); 
+	write_byte(TE_EXPLFLAG_NONE);
+	message_end();
+	
+	message_begin(MSG_BROADCAST,SVC_TEMPENTITY); 
+	write_byte(TE_KILLBEAM); 
+	write_short(iRocket);
+	message_end(); 
+	
+	// Reset to attack owner too
+	set_pev(iRocket, pev_owner, 0);
+	
+	// Наносим уров по радиусу
+	wpnmod_radius_damage2(vecOrigin, iRocket, iOwner, flDamage, flDamage * 2.0, CLASS_NONE, DMG_BLAST);
+	
+	// Stop fly sound
+	emit_sound(iRocket, CHAN_VOICE, SOUND_ROCKET_FLY, 0.0, 0.0, SND_STOP, PITCH_NORM);
+}
+
+
+//**********************************************
+//* Основная атака                             *
+//**********************************************
+
+public RPG7_PrimaryAttack(const iItem, const iPlayer, const iClip)
+{
+	if (pev(iPlayer, pev_waterlevel) == 3 || iClip <= 0)
+	{
+		wpnmod_play_empty_sound(iItem);
+		wpnmod_set_offset_float(iItem, Offset_flNextPrimaryAttack, 0.15);
+		return;
+	}
+	
+	wpnmod_set_offset_int(iItem, Offset_iClip, iClip - 1);
+	wpnmod_set_offset_int(iPlayer, Offset_iWeaponVolume, LOUD_GUN_VOLUME);
+	wpnmod_set_offset_int(iPlayer, Offset_iWeaponFlash, BRIGHT_GUN_FLASH);
+	
+	wpnmod_set_offset_float(iItem, Offset_flNextPrimaryAttack, 0.7);
+	wpnmod_set_offset_float(iItem, Offset_flTimeWeaponIdle, 0.7);
+	
+	wpnmod_set_player_anim(iPlayer, PLAYER_ATTACK1);
+	wpnmod_send_weapon_anim(iItem, ANIM_FIRE);
+	
+	emit_sound(iPlayer, CHAN_WEAPON, SOUND_FIRE, 1.0, ATTN_NORM, 0, PITCH_NORM);
+	
+	CNAHGE_ANIM_EXT(iPlayer, ANIM_EXTENSION_2, MODEL_PLAYER_2);
+
+    // Создаем ракету
+	RPG7_Fire(iPlayer);
+}
+```
+
+
+#### Создание собственного снаряда.
+
+А что если мы хотим создать свой уникальный снаряд и обычные гранаты нам не подходят? Рассмотрим на примере реализации из CSO Plasmagun от KORD_12.7. 
+
+```c
+// Ресурсы снаряда
+#define PLASMA_MODEL			"sprites/plasmaball.spr" // Спрайт снаряда
+#define PLASMA_EXPLODE			"sprites/plasmabomb.spr" // Спрайт взрыва
+#define PLASMA_VELOCITY			1200 // Скорость снаряда
+#define CLASS_PLASMA			"monster_plasma" // Класс создаваемой entity
+
+//
+// Спавним снаряд
+//
+CPlasmab__Spawn( pPlayer )
+{
+	new pPlasma = create_entity( "env_sprite" );
+	
+	if( pPlasma <= 0 )
+		return 0;
+		
+	message_begin( MSG_BROADCAST, SVC_TEMPENTITY );
+	write_byte( TE_KILLBEAM );
+	write_short( pPlasma );
+	message_end( );
+		
+	// Задаем имя класса
+	entity_set_string( pPlasma, EV_SZ_classname, CLASS_PLASMA );
+	
+	// Задаем модель
+	entity_set_model( pPlasma, PLASMA_MODEL );
+	
+	// Задаем координаты
+	static Float:vecSrc[ 3 ];
+	wpnmod_get_gun_position( pPlayer, vecSrc, 25.0, 16.0, -7.0 );
+	entity_set_origin( pPlasma, vecSrc );
+
+	entity_set_int( pPlasma, EV_INT_movetype, MOVETYPE_FLY );
+	entity_set_int( pPlasma, EV_INT_solid, SOLID_BBOX );
+	
+	// Задаем размер
+	entity_set_size( pPlasma, gVecZero, gVecZero );
+	
+	// Убираем черный квадрат вокруг спрайта
+	entity_set_float( pPlasma, EV_FL_renderamt, 255.0 );
+	entity_set_float( pPlasma, EV_FL_scale, 0.3 );
+	entity_set_int( pPlasma, EV_INT_rendermode, kRenderTransAdd );
+	entity_set_int( pPlasma, EV_INT_renderfx, kRenderFxGlowShell );
+	
+	// Задаем скорость
+	static Float:vecVelocity[ 3 ];
+	velocity_by_aim( pPlayer, PLASMA_VELOCITY, vecVelocity );
+	entity_set_vector( pPlasma, EV_VEC_velocity, vecVelocity );
+	 
+	// Задаем углы
+	static Float:vecAngles[ 3 ];
+	engfunc( EngFunc_VecToAngles, vecVelocity, vecAngles );
+	entity_set_vector( pPlasma, EV_VEC_angles, vecAngles );
+	
+	// Задаем владельца
+	entity_set_edict( pPlasma, EV_ENT_owner, pPlayer );
+
+	// Задаем фукцию касания	
+	wpnmod_set_touch( pPlasma, "CPlasmab__Touch" );
+	
+	return 1;
+}
+// 
+// Отработка тача снаряда
+//
+public CPlasmab__Touch( pPlasma, pOther )
+{
+	if( !is_valid_ent( pPlasma ) )
+		return;
+
+	// Создаем эффект взрыва
+	static Float:vecSrc[ 3 ];
+	entity_get_vector( pPlasma, EV_VEC_origin, vecSrc );
+	
+	engfunc( EngFunc_MessageBegin, MSG_PVS, SVC_TEMPENTITY, vecSrc, 0 );
+	write_byte( TE_EXPLOSION );
+	engfunc( EngFunc_WriteCoord, vecSrc[ 0 ] );
+	engfunc( EngFunc_WriteCoord, vecSrc[ 1 ] );
+	engfunc( EngFunc_WriteCoord, vecSrc[ 2 ] );
+	write_short( g_sModelIndexExplode );
+	write_byte( 5 );
+	write_byte( 15 );
+	write_byte( TE_EXPLFLAG_NOPARTICLES | TE_EXPLFLAG_NOSOUND );
+	message_end( );
+
+	// Проигрываем звук взрыва
+	emit_sound( pPlasma, CHAN_WEAPON, SOUND_EXPLODE, 1.0, 1.0, 0, 100 );
+
+	// Создаем взрыв, наносим урон
+	wpnmod_radius_damage( vecSrc, pPlasma, entity_get_edict( pPlasma, EV_ENT_owner ), WEAPON_DAMAGE, WEAPON_RADIUS, CLASS_NONE, DMG_ACID | DMG_ENERGYBEAM );	
+	remove_entity( pPlasma );	
+}
+
+//
+// Основная атака оружия
+//
+public CPlasma__PrimaryAttack( pItem, pPlayer, iClip, rgAmmo )
+{
+	if( iClip <= 0 || entity_get_int( pPlayer, EV_INT_waterlevel ) == 3 )
+	{
+		wpnmod_play_empty_sound( pItem );
+		wpnmod_set_offset_float( pItem, Offset_flNextPrimaryAttack, 0.25 );
+		return;
+	}
+	
+	if( CPlasmab__Spawn( pPlayer ) )
+	{
+		//fire effects
+		wpnmod_set_offset_int( pPlayer, Offset_iWeaponVolume, NORMAL_GUN_VOLUME );
+		wpnmod_set_offset_int( pPlayer, Offset_iWeaponFlash, DIM_GUN_FLASH );
+		
+		//remove ammo
+		wpnmod_set_offset_int( pItem, Offset_iClip, iClip -= 1 );
+		
+		entity_set_int( pPlayer, EV_INT_effects, entity_get_int( pPlayer, EV_INT_effects ) | EF_MUZZLEFLASH );
+		wpnmod_set_player_anim( pPlayer, PLAYER_ATTACK1 );
+	
+		wpnmod_set_offset_float( pItem, Offset_flNextPrimaryAttack, WEAPON_REFIRE_RATE );
+		wpnmod_set_offset_float( pItem, Offset_flTimeWeaponIdle, WEAPON_REFIRE_RATE + 3.0 );
+		
+		emit_sound( pPlayer, CHAN_WEAPON, SOUND_FIRE, 0.9, ATTN_NORM, 0, PITCH_NORM );
+		wpnmod_send_weapon_anim( pItem, SEQ_FIRE );
+		entity_set_vector( pPlayer, EV_VEC_punchangle, Float:{ -5.0, 0.0, 0.0 } );
+	}
+}
+
+```
+![20250928203217_1](https://github.com/user-attachments/assets/aa8828a5-065b-4bed-bbd3-021e2a555860)
+
+#### Лазерное оружие 
+
+Ещё одним вариантом основной атаки может быть использование лазера. Рассмотрим на примере плагина CSO Ethereal
+
+```c
+// Подключим инклюды
+#include <beams>
+#include <xs>
+
+// Sprites
+#define SPRITE_LIGHTNING		"sprites/lgtning.spr"
+
+// Beam
+#define BEAM_LIFE			0.09
+#define BEAM_COLOR			{100.0, 50.0, 253.0}
+#define BEAM_BRIGHTNESS			255.0
+#define BEAM_SCROLLRATE			10.0
+
+
+//**********************************************
+//* Основная атака                             *
+//**********************************************
+
+public Ethereal_PrimaryAttack(const iItem, const iPlayer, const iClip)
+{
+	if (pev(iPlayer, pev_waterlevel) == 3 || iClip <= 0)
+	{
+		wpnmod_play_empty_sound(iItem);
+		wpnmod_set_offset_float(iItem, Offset_flNextPrimaryAttack, 0.15);
+		return;
+	}
+	
+	new Float: vecSrc[3], Float: vecEnd[3], iBeam, iTrace = create_tr2();
+	
+	wpnmod_get_gun_position(iPlayer, vecSrc);
+	global_get(glb_v_forward, vecEnd);
+	
+	xs_vec_mul_scalar(vecEnd, 8192.0, vecEnd);
+	xs_vec_add(vecSrc, vecEnd, vecEnd);
+	
+	engfunc(EngFunc_TraceLine, vecSrc, vecEnd, DONT_IGNORE_MONSTERS, iPlayer, iTrace);
+	get_tr2(iTrace, TR_vecEndPos, vecEnd);
+	
+	if (pev_valid((iBeam = Beam_Create(SPRITE_LIGHTNING, 25.0))))
+	{
+		Beam_PointEntInit(iBeam, vecEnd, iPlayer);
+		Beam_SetEndAttachment(iBeam, 1);
+		Beam_SetBrightness(iBeam, BEAM_BRIGHTNESS);
+		Beam_SetScrollRate(iBeam, BEAM_SCROLLRATE);
+		Beam_SetColor(iBeam, BEAM_COLOR);
+		Beam_SetLife(iBeam, BEAM_LIFE);
+	}
+	
+	wpnmod_radius_damage2(vecEnd, iPlayer, iPlayer, WEAPON_DAMAGE, WEAPON_DAMAGE * 2.0, CLASS_NONE, DMG_ENERGYBEAM | DMG_ALWAYSGIB);
+	
+	engfunc(EngFunc_EmitSound, iPlayer, CHAN_AUTO, SOUND_FIRE, 0.9, ATTN_NORM, 0, PITCH_NORM);
+	engfunc(EngFunc_EmitAmbientSound, 0, vecEnd, SOUND_IMPACT, 0.9, ATTN_NORM, 0, PITCH_NORM);
+	
+	engfunc(EngFunc_MessageBegin, MSG_PVS, SVC_TEMPENTITY, vecEnd, 0);
+	write_byte(TE_DLIGHT);
+	engfunc(EngFunc_WriteCoord, vecEnd[0]);
+	engfunc(EngFunc_WriteCoord, vecEnd[1]);
+	engfunc(EngFunc_WriteCoord, vecEnd[2]);
+	write_byte(10);
+	write_byte(100);
+	write_byte(50);
+	write_byte(253);
+	write_byte(255);
+	write_byte(25);
+	write_byte(1);
+	message_end();
+	
+	engfunc(EngFunc_MessageBegin, MSG_PVS, SVC_TEMPENTITY, vecEnd, 0);
+	write_byte(TE_SPARKS);
+	engfunc(EngFunc_WriteCoord, vecEnd[0]);
+	engfunc(EngFunc_WriteCoord, vecEnd[1]);
+	engfunc(EngFunc_WriteCoord, vecEnd[2]);
+	message_end();
+	
+	wpnmod_decal_trace(iTrace, engfunc(EngFunc_DecalIndex, "{smscorch1") + random_num(0, 2));
+	
+	wpnmod_set_offset_int(iItem, Offset_iClip, iClip - 1);
+	wpnmod_set_offset_int(iPlayer, Offset_iWeaponVolume, LOUD_GUN_VOLUME);
+	wpnmod_set_offset_int(iPlayer, Offset_iWeaponFlash, BRIGHT_GUN_FLASH);
+	
+	wpnmod_set_offset_float(iItem, Offset_flNextPrimaryAttack, 0.1);
+	wpnmod_set_offset_float(iItem, Offset_flTimeWeaponIdle, 1.03);
+	
+	wpnmod_set_player_anim(iPlayer, PLAYER_ATTACK1);
+	wpnmod_send_weapon_anim(iItem, random_num(ANIM_FIRE_1, ANIM_FIRE_3));
+	
+	free_tr2(iTrace);
+}
+
+```
+
+### Реализация удара прикладом (оружие ближнего боя) 
+
+Рассмотрим реализацию удара штыком при альтернативной атаке мы можем найти в плагине  AK-47: Avtomat Kalashnikova от KORD_12.7
+
+```c
+//**********************************************
+//* Альтернативная атака                       *
+//**********************************************
+
+public AK47_SecondaryAttack(const iItem, const iPlayer)
+{
+	wpnmod_set_think(iItem, "AK47_Stab");
+	wpnmod_send_weapon_anim(iItem, ANIM_STAB);
+	
+	wpnmod_set_offset_float(iItem, Offset_flNextPrimaryAttack, 0.65);
+	wpnmod_set_offset_float(iItem, Offset_flNextSecondaryAttack, 0.65);
+	wpnmod_set_offset_float(iItem, Offset_flTimeWeaponIdle, 5.0);
+	
+	set_pev(iItem, pev_nextthink, get_gametime() + 0.3);
+}
+
+//**********************************************
+//* Обработка удара штыком                     *
+//**********************************************
+
+public AK47_Stab(const iItem, const iPlayer)
+{
+	#define Offset_trHit Offset_iuser1
+	#define Instance(%0) ((%0 == -1) ? 0 : %0)
+	
+	new iClass;
+	new iTrace;
+	new iEntity;
+	new iHitWorld;
+	
+	new Float: vecSrc[3];
+	new Float: vecEnd[3];
+	new Float: vecUp[3];
+	new Float: vecAngle[3];
+	new Float: vecRight[3];
+	new Float: vecForward[3];
+	
+	new Float: flFraction;
+	
+	iTrace = create_tr2();
+	
+	pev(iPlayer, pev_v_angle, vecAngle);
+	engfunc(EngFunc_MakeVectors, vecAngle);
+	
+	GetGunPosition(iPlayer, vecSrc);
+	
+	global_get(glb_v_up, vecUp);
+	global_get(glb_v_right, vecRight);
+	global_get(glb_v_forward, vecForward);
+
+	xs_vec_mul_scalar(vecUp, -2.0, vecUp);
+	xs_vec_mul_scalar(vecRight, 1.0, vecRight);
+	xs_vec_mul_scalar(vecForward, 48.0, vecForward);
+		
+	xs_vec_add(vecUp, vecRight, vecRight);
+	xs_vec_add(vecRight, vecForward, vecForward);
+	xs_vec_add(vecForward, vecSrc, vecEnd);
+
+	engfunc(EngFunc_TraceLine, vecSrc, vecEnd, DONT_IGNORE_MONSTERS, iPlayer, iTrace);
+	get_tr2(iTrace, TR_flFraction, flFraction);
+	
+	if (flFraction >= 1.0)
+	{
+		engfunc(EngFunc_TraceHull, vecSrc, vecEnd, DONT_IGNORE_MONSTERS, HULL_HEAD, iPlayer, iTrace);
+		get_tr2(iTrace, TR_flFraction, flFraction);
+		
+		if (flFraction < 1.0)
+		{
+			new iHit = Instance(get_tr2(iTrace, TR_pHit));
+			
+			if (!iHit || ExecuteHamB(Ham_IsBSPModel, iHit))
+			{
+				FindHullIntersection(vecSrc, iTrace, Float: {-16.0, -16.0, -18.0}, Float: {16.0,  16.0,  18.0}, iPlayer);
+			}
+			
+			get_tr2(iTrace, TR_vecEndPos, vecEnd);
+		}
+	}
+	
+	get_tr2(iTrace, TR_flFraction, flFraction);
+	
+	switch (random_num(0, 2))
+	{
+		case 0: emit_sound(iPlayer, CHAN_WEAPON, SOUND_MISS_1, 1.0, ATTN_NORM, 0, PITCH_NORM);
+		case 1: emit_sound(iPlayer, CHAN_WEAPON, SOUND_MISS_2, 1.0, ATTN_NORM, 0, PITCH_NORM);
+		case 2: emit_sound(iPlayer, CHAN_WEAPON, SOUND_MISS_3, 1.0, ATTN_NORM, 0, PITCH_NORM);
+	}
+	
+	if (flFraction < 1.0)
+	{
+		iHitWorld = true;
+		iEntity = Instance(get_tr2(iTrace, TR_pHit));
+		
+		wpnmod_clear_multi_damage();
+		
+		pev(iPlayer, pev_v_angle, vecAngle);
+		engfunc(EngFunc_MakeVectors, vecAngle);	
+		
+		global_get(glb_v_forward, vecForward);
+		ExecuteHamB(Ham_TraceAttack, iEntity, iPlayer, WEAPON_DAMAGE * 2.5, vecForward, iTrace, DMG_CLUB | DMG_NEVERGIB);
+		
+		wpnmod_apply_multi_damage(iPlayer, iPlayer);
+		wpnmod_set_player_anim(iPlayer, PLAYER_ATTACK1);
+			
+		if (iEntity && (iClass = ExecuteHamB(Ham_Classify, iEntity)) != CLASS_NONE && iClass != CLASS_MACHINE)
+		{
+			switch (random_num(0, 1))
+			{
+				case 0: emit_sound(iPlayer, CHAN_ITEM, SOUND_HIT_FLESH_1, 1.0, ATTN_NORM, 0, PITCH_NORM);
+				case 1: emit_sound(iPlayer, CHAN_ITEM, SOUND_HIT_FLESH_2, 1.0, ATTN_NORM, 0, PITCH_NORM);
+			}
+				
+			if (!ExecuteHamB(Ham_IsAlive, iEntity))
+			{
+				return;
+			}
+				
+			iHitWorld = false;
+		}
+			
+		if (iHitWorld)
+		{
+			wpnmod_set_offset_int(iItem, Offset_trHit, iTrace);
+			emit_sound(iPlayer, CHAN_ITEM, SOUND_HIT_WALL, 1.0, ATTN_NORM, 0, PITCH_NORM);
+		}
+		
+		wpnmod_set_think(iItem, "AK47_Smack");
+		set_pev(iItem, pev_nextthink, get_gametime() + 0.1);
+	}
+
+	free_tr2(iTrace);
+}
+
+public AK47_Smack(const iItem)
+{
+	new iTrace = wpnmod_get_offset_int(iItem, Offset_trHit);
+	
+	UTIL_DecalTrace(iTrace, get_decal_index("{shot1") + random_num(0, 4));
+	free_tr2(iTrace);
+}
+
+
+stock FindHullIntersection(const Float: vecSrc[3], &iTrace, const Float: vecMins[3], const Float: vecMaxs[3], const iEntity)
+{
+	new i, j, k;
+	new iTempTrace;
+	
+	new Float: vecEnd[3];
+	new Float: flDistance;
+	new Float: flFraction;
+	new Float: vecEndPos[3];
+	new Float: vecHullEnd[3];
+	new Float: flThisDistance;
+	new Float: vecMinMaxs[2][3];
+	
+	flDistance = 999999.0;
+	
+	xs_vec_copy(vecMins, vecMinMaxs[0]);
+	xs_vec_copy(vecMaxs, vecMinMaxs[1]);
+	
+	get_tr2(iTrace, TR_vecEndPos, vecHullEnd);
+	
+	xs_vec_sub(vecHullEnd, vecSrc, vecHullEnd);
+	xs_vec_mul_scalar(vecHullEnd, 2.0, vecHullEnd);
+	xs_vec_add(vecHullEnd, vecSrc, vecHullEnd);
+	
+	engfunc(EngFunc_TraceLine, vecSrc, vecHullEnd, DONT_IGNORE_MONSTERS, iEntity, (iTempTrace = create_tr2()));
+	get_tr2(iTempTrace, TR_flFraction, flFraction);
+	
+	if (flFraction < 1.0)
+	{
+		free_tr2(iTrace);
+		
+		iTrace = iTempTrace;
+		return;
+	}
+	
+	for (i = 0; i < 2; i++)
+	{
+		for (j = 0; j < 2; j++)
+		{
+			for (k = 0; k < 2; k++)
+			{
+				vecEnd[0] = vecHullEnd[0] + vecMinMaxs[i][0];
+				vecEnd[1] = vecHullEnd[1] + vecMinMaxs[j][1];
+				vecEnd[2] = vecHullEnd[2] + vecMinMaxs[k][2];
+				
+				engfunc(EngFunc_TraceLine, vecSrc, vecEnd, DONT_IGNORE_MONSTERS, iEntity, iTempTrace);
+				get_tr2(iTempTrace, TR_flFraction, flFraction);
+				
+				if (flFraction < 1.0)
+				{
+					get_tr2(iTempTrace, TR_vecEndPos, vecEndPos);
+					xs_vec_sub(vecEndPos, vecSrc, vecEndPos);
+					
+					if ((flThisDistance = xs_vec_len(vecEndPos)) < flDistance)
+					{
+						free_tr2(iTrace);
+						
+						iTrace = iTempTrace;
+						flDistance = flThisDistance;
+					}
+				}
+			}
+		}
+	}
+}
+
+stock UTIL_DecalTrace(const iTrace, iDecalIndex)
+{
+	new iHit;
+	new iEntity;
+	new iMessage;
+	
+	new Float: flFraction;
+	new Float: vecEndPos[3];
+	
+	if (iDecalIndex < 0 || get_tr2(iTrace, TR_flFraction, flFraction) && flFraction == 1.0)
+	{
+		return;
+	}
+        
+	if (pev_valid((iHit = get_tr2(iTrace, TR_pHit))))
+	{
+		if (iHit && !((pev(iHit, pev_solid) == SOLID_BSP) || (pev(iHit, pev_movetype) == MOVETYPE_PUSHSTEP)))
+		{
+			return;
+		}
+		
+		iEntity = iHit;
+	}
+	else
+	{
+		iEntity = 0;
+	}
+        
+	iMessage = TE_DECAL;
+	
+	if (iEntity != 0)
+	{
+		if (iDecalIndex > 255)
+		{
+			iMessage = TE_DECALHIGH;
+			iDecalIndex -= 256;
+		}
+	}
+	else
+	{
+		iMessage = TE_WORLDDECAL;
+		
+		if (iDecalIndex > 255)
+		{
+			iMessage = TE_WORLDDECALHIGH;
+			iDecalIndex -= 256;
+		}
+	}
+    
+	get_tr2(iTrace, TR_vecEndPos, vecEndPos);
+	
+	#define write_coord_f(%0) engfunc(EngFunc_WriteCoord,%0)
+    
+	message_begin(MSG_BROADCAST, SVC_TEMPENTITY);
+	write_byte(iMessage);
+	write_coord_f(vecEndPos[0]);
+	write_coord_f(vecEndPos[1]);
+	write_coord_f(vecEndPos[2]);
+	write_byte(iDecalIndex);
+	
+	#undef write_coord_f
+        
+	if (iEntity)
+	{
+		write_short(iEntity);
+	}
+    
+	message_end();
+}
+
+
+stock GetGunPosition(const iPlayer, Float: vecResult[3])
+{
+	new Float: vecViewOfs[3];
+	
+	pev(iPlayer, pev_origin, vecResult);
+	pev(iPlayer, pev_view_ofs, vecViewOfs);
+    
+	xs_vec_add(vecResult, vecViewOfs, vecResult);
+} 
+```
+
+![20250928211625_2](https://github.com/user-attachments/assets/e4f42c1e-aad8-40f7-93e1-8ec8abf0fb44)

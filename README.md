@@ -602,11 +602,12 @@ public Ammo762_AddAmmo(const iItem, const iPlayer)
 
 ## Часто используемый функционал
 
+
 ### Выстрел из дробовика 
 
 Для реализации выстрела из дробовика вы можете воспользоваться следующей функцией. Она использовалась в плагине USAS-12 от @Glaster
 
-```
+```c
 public S12_PrimaryAttack(const iItem, const iPlayer, iClip)
 {
 	if (pev(iPlayer, pev_waterlevel) == 3 || iClip <= 0)
@@ -716,6 +717,172 @@ shotgunman_ShotBullets(const iItem, const iPlayer, iBullets, const iAmmo)
 
 
 ### Прицеливание 
+
+Нюансы реализации прицеливания могут отличаться от плагина к плагину: для отображения прицеливания можно использовать как простой спрайт, так и отдельную v_ модель. Однако для всех случаев для начала нам нужно помимо остновного ```weapon_name.txt``` создать  ```weapon_name_scp.txt``` (например,  ```weapon_sniperrifle.txt``` и ```weapon_sniperrifle_scp.txt```).  
+
+weapon_sniperrifle.txt 
+
+```
+6
+ammo            640	640hud7		24  72  24  24
+crosshair		640 crosshairs	72	0	24	24
+zoom			640 crosshairs	72	0	24	24
+autoaim			640 crosshairs	72	48	24	24
+weapon          640 weapon_sniperrifle	0   0  170 45
+weapon_s        640 weapon_sniperrifle	0   45  170 45
+```
+
+weapon_sniperrifle_scp.txt
+
+```
+6
+ammo            640	640hud7		24  72  24  24
+crosshair		640 ofch2  0  0   256  256
+zoom            640 ofch2  0  0   256  256
+autoaim			640 ofch2  0  0   256  256
+weapon          640 weapon_sniperrifle	0   0  170 45
+weapon_s        640 weapon_sniperrifle	0   45  170 45
+```
+
+Можно заменить, что файлы отличаются между собой секциями crosshair, zoom и autoaim, в них идет описание прицела. В первом случае будет использоваться стандартный прицел 
+
+<img width="133" height="68" alt="image" src="https://github.com/user-attachments/assets/49aa1979-b115-4cc0-82d2-beafbf5842aa" />
+
+А во втором - прицел для зума 
+
+<img width="266" height="258" alt="image" src="https://github.com/user-attachments/assets/26d6269a-4145-482f-b87b-7d6fceae8312" />
+
+
+#### Прицеливание с использованием спрайта
+
+Продолжим развите прицела для снайперской винтовки. Код, реализующий прицеливание приведен ниже 
+
+```c
+
+//**********************************************
+//* Secondary attack of a weapon is triggered. *
+//**********************************************
+
+public M40A1_SecondaryAttack(const iItem, const iPlayer)
+{
+	new Float: flFov;
+	
+	if (pev(iPlayer, pev_fov, flFov) && flFov != 0.0)
+	{
+		MakeZoom(iItem, iPlayer, "weapon_sniperrifle", 0.0);
+		
+	}
+	else if (flFov != 20.0)
+	{
+		MakeZoom(iItem, iPlayer, "weapon_sniperrifle_scp", 20.0);
+	}
+	
+	emit_sound(iPlayer, CHAN_ITEM, SOUND_ZOOM, random_float(0.95, 1.0), ATTN_NORM, 0, PITCH_NORM);
+	
+	wpnmod_set_offset_float(iItem, Offset_flNextPrimaryAttack, 0.1);
+	wpnmod_set_offset_float(iItem, Offset_flNextSecondaryAttack, 0.8);
+}
+
+MakeZoom(const iItem, const iPlayer, const szWeaponName[], const Float: flFov)
+{
+	static msgWeaponList;
+	
+	set_pev(iPlayer, pev_fov, flFov);
+	wpnmod_set_offset_int(iPlayer, Offset_iFOV, _:flFov);
+		
+	if (msgWeaponList || (msgWeaponList = get_user_msgid("WeaponList")))		
+	{
+		message_begin(MSG_ONE, msgWeaponList, .player = iPlayer);
+		write_string(szWeaponName);
+		write_byte(wpnmod_get_offset_int(iItem, Offset_iPrimaryAmmoType));
+		write_byte(WEAPON_PRIMARY_AMMO_MAX);
+		write_byte(wpnmod_get_offset_int(iItem, Offset_iSecondaryAmmoType));
+		write_byte(WEAPON_SECONDARY_AMMO_MAX);
+		write_byte(WEAPON_SLOT - 1);
+		write_byte(WEAPON_POSITION - 1);
+		write_byte(get_user_weapon(iPlayer));
+		write_byte(WEAPON_FLAGS);
+		message_end();
+	}
+}
+```
+
+При прицеливании мы изменяем ```pev_fov``` игрока, перерисовываем интерфейс и выбираем нужный txt файл с прицеливанием (```weapon_sniperrifle_scp``` для включения, ```weapon_sniperrifle``` для выключения)
+
+
+#### Прицеливание с использованием отдельной v_ модели
+
+Использование отдельной модели под прицеливание может выглядеть интересно. Например, это реализовано в плагине TAR-21 от KORD_12.7 и Koshak. Там для прицеливания используется отдельная модель ```v_tar21_sight_koshak```. 
+
+<img width="599" height="506" alt="image" src="https://github.com/user-attachments/assets/ca2b8686-32af-4c7d-a080-830b17fe078d" />
+
+Обновленный код с использованием этой модели приведён ниже. 
+
+```c
+//**********************************************
+//* Secondary attack of a weapon is triggered. *
+//**********************************************
+
+public TAR_SecondaryAttack(const iItem, const iPlayer)
+{
+	new iInZoom = wpnmod_get_offset_int(iItem, Offset_iInZoom);
+	
+	if (!iInZoom)
+	{
+		SetThink(iItem, "TAR_SightThink", 0.3);
+	}
+	else
+	{
+		MakeZoom(iItem, iPlayer, WEAPON_NAME, MODEL_VIEW, 0.0);
+	}
+	
+	wpnmod_set_offset_int(iItem, Offset_iInZoom, !iInZoom);
+	wpnmod_set_offset_float(iItem, Offset_flNextPrimaryAttack, 0.35);
+	wpnmod_set_offset_float(iItem, Offset_flNextSecondaryAttack, 0.5);
+	wpnmod_send_weapon_anim(iItem, iInZoom ? ANIM_SIGHT_END : ANIM_SIGHT_BEGIN);
+}
+
+//**********************************************
+//* Enable sight.                              *
+//**********************************************
+
+public TAR_SightThink(const iItem, const iPlayer)
+{
+	MakeZoom(iItem, iPlayer, WEAPON_NAME_SIGHT, MODEL_VIEW_SIGHT, 60.0);
+}
+
+//**********************************************
+//* Apply zoom.                                *
+//**********************************************
+
+MakeZoom(const iItem, const iPlayer, const szWeaponName[], const szViewModel[], const Float: flFov)
+{
+	static msgWeaponList;
+	
+	set_pev(iPlayer, pev_fov, flFov);
+	set_pev(iPlayer, pev_viewmodel2, szViewModel);
+	
+	wpnmod_set_offset_int(iPlayer, Offset_iFOV, floatround(flFov));
+		
+	if (msgWeaponList || (msgWeaponList = get_user_msgid("WeaponList")))		
+	{
+		message_begin(MSG_ONE, msgWeaponList, .player = iPlayer);
+		write_string(szWeaponName);
+		write_byte(wpnmod_get_offset_int(iItem, Offset_iPrimaryAmmoType));
+		write_byte(wpnmod_get_weapon_info(iItem, ItemInfo_iMaxAmmo1));
+		write_byte(wpnmod_get_offset_int(iItem, Offset_iSecondaryAmmoType));
+		write_byte(wpnmod_get_weapon_info(iItem, ItemInfo_iMaxAmmo2));
+		write_byte(wpnmod_get_weapon_info(iItem, ItemInfo_iSlot));
+		write_byte(wpnmod_get_weapon_info(iItem, ItemInfo_iPosition));
+		write_byte(wpnmod_get_weapon_info(iItem, ItemInfo_iId));
+		write_byte(wpnmod_get_weapon_info(iItem, ItemInfo_iFlags));
+		message_end();
+	}
+}
+```
+
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/3ed524e6-692b-4584-8345-86e8d27028f6" />
+
 
 ### Запуск снарядов (создание плазмагана)
 

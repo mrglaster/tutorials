@@ -600,19 +600,130 @@ public Ammo762_AddAmmo(const iItem, const iPlayer)
 }
 ```
 
+## Часто используемый функционал
+
+### Выстрел из дробовика 
+
+Для реализации выстрела из дробовика вы можете воспользоваться следующей функцией. Она использовалась в плагине USAS-12 от @Glaster
+
+```
+public S12_PrimaryAttack(const iItem, const iPlayer, iClip)
+{
+	if (pev(iPlayer, pev_waterlevel) == 3 || iClip <= 0)
+	{
+		wpnmod_play_empty_sound(iItem);
+		wpnmod_set_offset_float(iItem, Offset_flNextPrimaryAttack, 0.7);
+		return;
+	}
+
+	wpnmod_set_offset_int(iItem, Offset_iClip, iClip -= 1);
+	wpnmod_set_offset_int(iPlayer, Offset_iWeaponVolume, LOUD_GUN_VOLUME);
+	wpnmod_set_offset_int(iPlayer, Offset_iWeaponFlash, BRIGHT_GUN_FLASH);
+
+	wpnmod_fire_bullets(
+		iPlayer, // Индекс игрока, владельца оружия.
+		iPlayer, // Индекс атакующего, как правило владельца оружия.
+		10, // Кол-во выстрелов за раз.
+		VECTOR_CONE_15DEGREES, // Разброс
+		3048.0, // Дальность выстрела.
+		WEAPON_DAMAGE, // Урон
+		DMG_BULLET, // Тип урона (DMG_ биты).
+		15 // Частота трасеров.
+);
+	wpnmod_set_offset_float(iItem, Offset_flNextPrimaryAttack, WEAPON_RATE_OF_FIRE);
+	wpnmod_set_offset_float(iItem, Offset_flTimeWeaponIdle, 7.0);
+
+	wpnmod_set_player_anim(iPlayer, PLAYER_ATTACK1);
+	wpnmod_send_weapon_anim(iItem, shot1);
+	emit_sound(iPlayer, CHAN_WEAPON, SOUND_FIRE, 0.9, ATTN_NORM, 0, PITCH_NORM);
+
+}
+```
+
+Може сделать ещё боле интересно. Нижен представлен код, используемый в плагине Shotgunman от dima_mark7. Плагин реализует дробовик из Gunman Chronicles. Основная "фишка" данного оружия - регулируемое количество выпущенных пуль (регулировка происходит на альтернативную атаку). Также, реализована отдача. 
+
+```c
+// Основная атака
+public shotgunman_primaryattack(const iItem, const iPlayer, iClip, iAmmo)
+{
+        if (pev(iPlayer, pev_waterlevel) == 3 || iAmmo <= 0)
+        {
+                wpnmod_play_empty_sound(iItem);
+                wpnmod_set_offset_float(iItem, Offset_flNextPrimaryAttack, 0.15);
+                return;
+        }
+       
+        shotgunman_ShotBullets(iItem, iPlayer, g_bullet[iPlayer], iAmmo);
+       
+        wpnmod_set_offset_float(iItem, Offset_flNextPrimaryAttack, 0.92);
+        wpnmod_set_offset_float(iItem, Offset_flNextSecondaryAttack, 0.92);
+        wpnmod_set_offset_float(iItem, Offset_flTimeWeaponIdle, 0.92);
+       
+        wpnmod_set_player_anim(iPlayer, PLAYER_ATTACK1);
+        emit_sound(iPlayer, CHAN_WEAPON, SOUND_FIRE, 0.92, ATTN_NORM, 0, PITCH_NORM);
+}
+
+// Функция выстрел определенного количества снарядов
+shotgunman_ShotBullets(const iItem, const iPlayer, iBullets, const iAmmo)
+{
+        static Float: flMult;
+        static Float: flZVel;
+        static Float: vecAngle[3];
+        static Float: vecForward[3];
+        static Float: vecVelocity[3];
+        static Float: vecPunchangle[3];
+       
+        if (iAmmo < iBullets)
+        {
+                iBullets = iAmmo;
+        }
+ 
+        wpnmod_fire_bullets(iPlayer, iPlayer, iBullets * 4, VECTOR_CONE_15DEGREES, 2048.0, WEAPON_DAMAGE, DMG_BULLET, iBullets * 4);
+       
+        for (new i = 0; i < iBullets; i++)
+        {
+                wpnmod_eject_brass(iPlayer, shell, TE_BOUNCE_SHOTSHELL, 16.0, -18.0, 6.0);
+        }
+       
+        wpnmod_send_weapon_anim(iItem, GUN_IDLE2 + iBullets);
+        wpnmod_set_player_ammo(iPlayer, WEAPON_PRIMARY_AMMO, iAmmo - iBullets);
+               
+        global_get(glb_v_forward, vecForward);
+       
+        pev(iPlayer, pev_v_angle, vecAngle);
+        pev(iPlayer, pev_velocity, vecVelocity);
+        pev(iPlayer, pev_punchangle, vecPunchangle);
+               
+        xs_vec_add(vecAngle, vecPunchangle, vecPunchangle);
+        engfunc(EngFunc_MakeVectors, vecPunchangle);
+               
+        flZVel = vecVelocity[2];
+        flMult = float(iBullets);
+               
+        xs_vec_mul_scalar(vecForward, 100.0 * flMult, vecPunchangle);
+        xs_vec_sub(vecVelocity, vecPunchangle, vecVelocity);
+               
+        vecPunchangle[2] = 0.0;
+        vecVelocity[2] = flZVel;
+       
+        vecPunchangle[0] = random_float(-1.0 * flMult, 1.0 * flMult);
+        vecPunchangle[1] = random_float(-(++flMult), flMult);
+               
+        set_pev(iPlayer, pev_velocity, vecVelocity);
+        set_pev(iPlayer, pev_punchangle, vecPunchangle);
+}
+```
+
+
 ### Прицеливание 
 
-#### Реализация через спрайт 
-
-#### Реализация через анимацию V_ модели
-
-#### Реалазация через отдельную модель 
-
-### Запуск снарядов 
+### Запуск снарядов (создание плазмагана)
 
 ### Лазерное оружие 
 
 ### Создание оружия ближнего боя
+
+
 
 ## Бонус: полезные методы при работе с оружием 
 
